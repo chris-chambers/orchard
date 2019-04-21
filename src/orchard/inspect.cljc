@@ -9,10 +9,12 @@
 
   Pretty wild, right?"
   (:require
-   [clojure.string :as s])
+   [clojure.string :as s]
+   [clojure.reflect :as reflect])
   (:import
-   (java.lang.reflect Field)
-   (java.util List Map)
+   #?(:clj [java.lang.reflect Field])
+   #?(:clj  [java.util List Map]
+      :cljr [System.Collections IList IDictionary])
    clojure.lang.Seqable))
 
 ;;
@@ -96,7 +98,7 @@
 (defn down
   "Drill down to an indexed object referred to by the previously
    rendered value."
-  [inspector ^Integer idx]
+  [inspector idx] ;; ^Integer idx
   {:pre [(integer? idx)]}
   (let [{:keys [index path current-page page-size]} inspector
         new (get index idx)
@@ -173,12 +175,12 @@
     (seq? value)                                   :list-long
     (and (set? value) (short? value))              :set
     (set? value)                                   :set-long
-    (and (instance? List value) (short? value))    :list
-    (instance? List value)                         :list-long
-    (and (instance? Map value) (short? value))     :map
-    (instance? Map value)                          :map-long
-    (and (.isArray (class value)) (short? value))  :array
-    (.isArray (class value))                       :array-long
+    (and (#?(:clj .isArray :cljr .IsArray) (class value)) (short? value))  :array
+    (#?(:clj .isArray :cljr .IsArray) (class value))                       :array-long
+    (and (instance? #?(:clj List :cljr IList) value) (short? value))    :list
+    (instance? #?(:clj List :cljr IList) value)                         :list-long
+    (and (instance? #?(:clj Map :cljr IDictionary) value) (short? value))     :map
+    (instance? #?(:clj Map :cljr IDictionary) value)                          :map-long
     :else (or (:inspector-tag (meta value))
               (type value))))
 
@@ -226,13 +228,17 @@
   (safe-pr-seq (take 5 value) "#{ %s ... }"))
 
 (defmethod inspect-value :array [value]
-  (let [ct (.getName (or (.getComponentType (class value)) Object))]
+  (let [ct (#?(:clj  .getName
+               :cljr .Name) (or (#?(:clj  .getComponentType
+                                    :cljr .GetElementType) (class value)) Object))]
     (safe-pr-seq value ", " (str ct "[] { %s }"))))
 
 (defmethod inspect-value :array-long [value]
-  (let [ct (.getName (or (.getComponentType (class value)) Object))]
+  (let [ct (#?(:clj  .getName
+               :cljr .Name) (or (#?(:clj  .getComponentType
+                                    :cljr .GetElementType) (class value)) Object))]
     (safe-pr-seq (take 5 value) ", " (str ct "[] { %s ... }"))))
-(defmethod inspect-value java.lang.Class [value]
+(defmethod inspect-value #?(:clj java.lang.Class :cljr System.Type) [value]
   (pr-str value))
 
 (defmethod inspect-value :default [value]
@@ -294,7 +300,8 @@
                           ;; it's not infinite.
                           (empty? (drop (* (inc current-page) page-size) obj)))
                     (quot (dec (count obj)) page-size)
-                    Integer/MAX_VALUE) ;; possibly infinite
+                    #?(:clj  Integer/MAX_VALUE
+                       :cljr Int32/MaxValue)) ;; possibly infinite
         ;; current-page might contain an incorrect value, fix that
         current-page (cond (< current-page 0) 0
                            (> current-page last-page) last-page
@@ -311,7 +318,7 @@
             (render '(:newline)))
         ins)
 
-      (if (or (map? obj) (instance? Map obj))
+      (if (or (map? obj) #_(instance? Map obj))
         (render-map-values ins chunk-to-display)
         (render-indexed-values ins chunk-to-display start-idx))
 
@@ -324,7 +331,7 @@
             (render '(:newline))
             (render (format "  Page size: %d, showing page: %d of %s"
                             page-size (inc current-page)
-                            (if (= last-page Integer/MAX_VALUE)
+                            (if (= last-page #?(:clj Integer/MAX_VALUE :cljr Int32/MaxValue))
                               "?" (inc last-page))))
             (assoc :current-page current-page))
         ins))))
@@ -346,12 +353,12 @@
     (set? obj) :coll
     (var? obj) :var
     (string? obj) :string
-    (instance? Class obj) :class
+    (instance? #?(:clj Class :cljr System.Type) obj) :class
     (instance? clojure.lang.Namespace obj) :namespace
     (instance? clojure.lang.ARef obj) :aref
-    (instance? List obj) :coll
-    (instance? Map obj) :coll
-    (.isArray (class obj)) :array
+    (instance? #?(:clj List :cljr IList) obj) :coll
+    (instance? #?(:clj Map :cljr IDictionary) obj) :coll
+    (#?(:clj .isArray :cljr .IsArray) (class obj)) :array
     :default (or (:inspector-tag (meta obj))
                  (type obj))))
 
@@ -387,27 +394,28 @@
           (render-value (var-get obj)))
       header-added)))
 
-(defmethod inspect :string [inspector ^java.lang.String obj]
+(defmethod inspect :string [inspector ^String obj]
   (-> inspector
       (render-labeled-value "Class" (class obj))
       (render "Value: " (pr-str obj))))
 
 (defmethod inspect :default [inspector obj]
-  (let [^"[Ljava.lang.reflect.Field;" fields (.getDeclaredFields (class obj))
-        names (map #(.getName ^Field %) fields)
-        get (fn [^Field f]
+  (let [;; ^"[Ljava.lang.reflect.Field;"
+        #_#_fields (.getDeclaredFields (class obj))
+        #_#_names (map #(.getName ^Field %) fields)
+        #_#_get (fn [^Field f]
               (try (.setAccessible f true)
                    (catch java.lang.SecurityException e))
               (try (.get f obj)
                    (catch java.lang.IllegalAccessException e
                      "Access denied.")))
-        vals (map get fields)]
+        #_#_vals (map get fields)]
     (-> inspector
         (render-labeled-value "Type" (class obj))
         (render-labeled-value "Value" (pr-str obj))
         (render-ln "---")
         (render-ln "Fields: ")
-        (render-map-values (zipmap names vals)))))
+        (render-map-values {} #_(zipmap names vals)))))
 
 (defn- render-class-section [inspector obj section]
   (let [method (symbol (str ".get" (name section)))
@@ -417,9 +425,38 @@
                         ~@(mapcat (fn [f]
                                     `("  " (:value ~f) (:newline))) elements)))))
 
+(defn- section-elements
+  [section obj]
+  (case section
+    :Interfaces
+    (->> obj
+         reflect/reflect
+         :bases
+         (filter #(-> % reflect/type-reflect :flags :interface)))
+
+    :Constructors
+    (->> obj
+         reflect/reflect
+         :members
+         (filter #(instance? clojure.reflect.Constructor %)))
+
+    :Fields
+    (->> obj
+         reflect/reflect
+         :members
+         (filter #(instance? clojure.reflect.Field %)))
+
+    :Methods
+    (->> obj
+         reflect/reflect
+         :members
+         (filter #(instance? clojure.reflect.Method %))
+         ;; If the CLR wants to handle properties separately, add this, and another
+         ;; branch for :Properties
+         #_(remove #(-> % :flags :special-name)))))
+
 (defn- render-section [obj inspector section]
-  (let [method (symbol (str ".get" (name section)))
-        elements (eval (list method obj))]
+  (let [elements (section-elements section obj)]
     (if-not elements
       inspector
       (reduce (fn [ins elt]
@@ -432,7 +469,7 @@
                   (render-ln "--- " (name section) ": "))
               elements))))
 
-(defmethod inspect :class [inspector ^Class obj]
+(defmethod inspect :class [inspector ^#?(:clj Class :cljr System.Type) obj]
   (reduce (partial render-section obj)
           (render-labeled-value inspector "Type" (class obj))
           [:Interfaces :Constructors :Fields :Methods]))

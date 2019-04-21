@@ -51,7 +51,7 @@
                           sort)]
     (if (not-empty filter-regex)
       (filter (fn [spec-symbol-str]
-                (let [checkable-part (if (.startsWith ^String spec-symbol-str ":")
+                (let [checkable-part (if (str/starts-with? ^String spec-symbol-str ":")
                                        (subs spec-symbol-str 1)
                                        spec-symbol-str)]
                   (re-find (re-pattern filter-regex) checkable-part)))
@@ -85,7 +85,7 @@
   the associated spec in the registry, if there is one."
   [s]
   (let [[spec-ns spec-kw] (str/split s #"/")]
-    (if (.startsWith ^String spec-ns ":")
+    (if (str/starts-with? ^String spec-ns ":")
       (get-spec (keyword (subs spec-ns 1) spec-kw))
       (get-spec (symbol s)))))
 

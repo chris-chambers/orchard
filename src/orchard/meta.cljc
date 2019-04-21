@@ -1,7 +1,8 @@
 (ns orchard.meta
   "Utility functions for extracting and manipulating metadata."
   (:require
-   [clojure.java.io :as io]
+   #?(:clj  [clojure.java.io :as io]
+      :cljr [clojure.clr.io :as io])
    [clojure.pprint :as pprint]
    [clojure.repl :as repl]
    [clojure.string :as str]
@@ -9,7 +10,8 @@
    [orchard.namespace :as ns]
    [orchard.spec :as spec])
   (:import
-   [clojure.lang LineNumberingPushbackReader]))
+   [clojure.lang #?(:clj  LineNumberingPushbackReader
+                    :cljr LineNumberingTextReader)]))
 
 ;;; ## Extractors
 
@@ -85,7 +87,7 @@
   (if-let [ns (find-ns ns)]
     (try (ns-resolve ns sym)
          ;; Impl might try to resolve it as a class, which may fail
-         (catch ClassNotFoundException _
+         (catch #?(:clj ClassNotFoundException :cljr TypeLoadException) _
            nil)
          ;; TODO: Preserve and display the exception info
          (catch Exception _
@@ -184,11 +186,15 @@
   (when-let [{:keys [file line column] :as var-meta} (var-meta v)]
     ;; file can be either absolute (eg: functions that have been eval-ed with
     ;; C-M-x), or relative to some path on the classpath.
-    (when-let [res (or (io/resource file)
-                       (let [f (io/file file)]
-                         (when (.exists f)
-                           f)))]
-      (with-open [rdr (LineNumberingPushbackReader. (io/reader res))]
+    (when-let [res #?(:clj (or (io/resource file)
+                               (let [f (io/file file)]
+                                 (when (.exists f)
+                                   f)))
+                      :cljr (let [f (FileInfo. file)]
+                              (when (.Exists f)
+                                f)))]
+      (with-open [rdr #?(:clj  (LineNumberingPushbackReader. (io/reader res))
+                         :cljr (LineNumberingTextReader. (io/text-reader res)))]
         ;; Skip to the right line
         (dotimes [_ (dec line)]
           (.readLine rdr))
@@ -197,7 +203,8 @@
         ;; clojure.repl/source.
         (let [text     (StringBuilder.)
               collect? (atom false)
-              pbr      (proxy [LineNumberingPushbackReader] [rdr]
+              pbr      (proxy [#?(:clj  LineNumberingPushbackReader
+                                  :cljr LineNumberingTextReader)] [rdr]
                          (read []
                            (let [i (proxy-super read)]
                              (when @collect?
@@ -277,7 +284,8 @@
                               ;; Without this, `macroexpand-all`
                               ;; throws if called on `defrecords`.
                               (try (macroexpand form)
-                                   (catch ClassNotFoundException e form))
+                                   (catch #?(:clj  ClassNotFoundException
+                                             :cljr TypeLoadException) e form))
                               form))]
     (if md
       ;; Macroexpand the metadata too, because sometimes metadata

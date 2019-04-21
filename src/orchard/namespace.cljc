@@ -1,16 +1,17 @@
 (ns orchard.namespace
   "Utilities for resolving and loading namespaces"
   (:require
-   [clojure.java.io :as io]
+   #?(:clj [clojure.java.io :as io])
    [clojure.string :as str]
    [clojure.tools.namespace.file :as ns-file]
    [clojure.tools.namespace.find :as ns-find]
-   [orchard.classloader :refer [class-loader]]
-   [orchard.classpath :as cp]
+   #?(:clj [orchard.classloader :refer [class-loader]])
+   #?(:clj [orchard.classpath :as cp])
    [orchard.misc :as misc])
   (:import
-   java.io.File
-   java.util.jar.JarFile))
+   #?(:clj  java.io.File
+      :cljr System.IO.FileInfo)
+   #?(:clj java.util.jar.JarFile)))
 
 ;;; Namespace Loading
 
@@ -25,26 +26,32 @@
 ;;
 ;; These methods search project sources on the classpath. Non-classpath source
 ;; files, documentation code, etc within the project directory are ignored.
-(def jar-namespaces
-  (->> (cp/classpath-jarfiles)
-       (mapcat ns-find/find-namespaces-in-jarfile)
-       (into #{})))
+#?(:clj
+   (def jar-namespaces
+     (->> (cp/classpath-jarfiles)
+          (mapcat ns-find/find-namespaces-in-jarfile)
+          (into #{}))))
 
 (def project-root
-  (str (System/getProperty "user.dir")
-       (System/getProperty "file.separator")))
+  #?(:clj
+     (str (System/getProperty "user.dir")
+          (System/getProperty "file.separator"))
+     :cljr
+     (str (Environment/CurrentDirectory)
+          (System.IO.Path/DirectorySeparatorChar))))
 
 (defn project-namespaces
   "Find all namespaces defined in source paths within the current project."
   []
   (let [project-pred (if (misc/os-windows?)
                        ;; On Windows we want to do case-insensitive path comparison
-                       #(.startsWith
+                       #(str/starts-with?
                          (str/lower-case (str %))
                          (str/lower-case project-root))
-                       #(.startsWith (str %) project-root))]
-    (->> (filter (memfn ^File isDirectory) (cp/classpath (class-loader)))
-         (filter project-pred)
+                       #(str/starts-with? (str %) project-root))]
+    (->> #?@(:clj  [(filter (memfn ^File isDirectory) (cp/classpath (class-loader)))
+                    (filter project-pred)]
+             :cljr [nil])
          (mapcat ns-find/find-namespaces-in-dir))))
 
 (defn inlined-dependency?
@@ -54,11 +61,11 @@
   (let [ns-name (str (ns-name namespace))]
     (or
      ;; rewritten by mranderson
-     (.startsWith ns-name "deps.")
-     (.startsWith ns-name "mranderson")
-     (.startsWith ns-name "cider.inlined-deps")
+     (str/starts-with? ns-name "deps.")
+     (str/starts-with? ns-name "mranderson")
+     (str/starts-with? ns-name "cider.inlined-deps")
      ;; rewritten by dolly
-     (.startsWith ns-name "eastwood.copieddeps"))))
+     (str/starts-with? ns-name "eastwood.copieddeps"))))
 
 (defn internal-namespace?
   "Returns true if the namespace matches the given prefixes."
@@ -95,26 +102,29 @@
        (filter identity)
        sort))
 
+#?(:clj
 ;;; Finding a namespace's file.
-(defn- jar-file?
-  "Returns true if file is a normal file with a .jar or .JAR extension."
-  [f]
-  (let [file (io/file f)]
-    (and (.isFile file)
-         (.endsWith (.. file getName toLowerCase) ".jar"))))
-
-(defn- get-clojure-sources-in-jar
-  [^JarFile jar]
-  (let [path-to-jar (.getName jar)]
-    (map #(str "jar:file:" path-to-jar "!/" %) (ns-find/sources-in-jar jar))))
+   (defn- jar-file?
+     "Returns true if file is a normal file with a .jar or .JAR extension."
+     [f]
+     (let [file (io/file f)]
+       (and (.isFile file)
+            (.endsWith (.. file getName toLowerCase) ".jar")))))
+#?(:clj
+   (defn- get-clojure-sources-in-jar
+     [^JarFile jar]
+     (let [path-to-jar (.getName jar)]
+       (map #(str "jar:file:" path-to-jar "!/" %) (ns-find/sources-in-jar jar)))))
 
 (defn- all-clj-files-on-cp []
-  (let [dirs-on-cp (filter #(.isDirectory ^File %) (cp/classpath))
-        jars-on-cp (map #(JarFile. ^File %) (filter jar-file? (cp/classpath)))]
-    (concat (->> dirs-on-cp
-                 (mapcat ns-find/find-sources-in-dir)
-                 (map #(.getAbsolutePath ^File %)))
-            (mapcat get-clojure-sources-in-jar jars-on-cp))))
+  #?(:clj
+     (let [dirs-on-cp (filter #(.isDirectory ^File %) (cp/classpath))
+           jars-on-cp (map #(JarFile. ^File %) (filter jar-file? (cp/classpath)))]
+       (concat (->> dirs-on-cp
+                    (mapcat ns-find/find-sources-in-dir)
+                    #?(:clj  (map #(.getAbsolutePath ^File %))
+                       :cljr (map #(.FullName ^FileInfo %))))
+               (mapcat get-clojure-sources-in-jar jars-on-cp)))))
 
 (defn ns-path
   "Return the path to a file containing namespace `ns`.
@@ -129,7 +139,7 @@
             (if (= file-ns ns)
               (first paths)
               (recur (rest paths)))))))
-    (catch Throwable _ nil)))
+    (catch #?(:clj Throwable :cljr Exception) _ nil)))
 
 (defn has-tests?
   "Return a truthy value if the namespace has any vars with `:test` metadata."

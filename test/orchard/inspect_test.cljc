@@ -1,5 +1,6 @@
 (ns orchard.inspect-test
   (:require
+   [clojure.string :as str]
    [clojure.test :refer :all]
    [orchard.inspect :as inspect]))
 
@@ -110,7 +111,7 @@
     (is (= 65 (-> long-map
                   inspect
                   :counter)))
-    (is (.startsWith (-> long-vector
+    (is (str/starts-with? (-> long-vector
                          inspect
                          :rendered
                          last)
@@ -180,24 +181,24 @@
 
 (deftest path-test
   (testing "inspector tracks the path in the data structure"
-    (is (.endsWith (first (-> long-map
+    (is (str/ends-with? (first (-> long-map
                               inspect
                               (inspect/down 39)
                               render))
                    "\"  Path: (find 50) key\")"))
-    (is (.endsWith (first (-> long-map
+    (is (str/ends-with? (first (-> long-map
                               inspect
                               (inspect/down 40)
                               render))
                    "\"  Path: (get 50)\")"))
-    (is (.endsWith (first (-> long-map
+    (is (str/ends-with? (first (-> long-map
                               inspect
                               (inspect/down 40)
                               (inspect/down 0)
                               render))
                    "\"  Path: (get 50) class\")")))
   (testing "doesn't show path if unknown navigation has happened"
-    (is (.endsWith (first (-> long-map
+    (is (str/ends-with? (first (-> long-map
                               inspect
                               (inspect/down 40)
                               (inspect/down 0)
@@ -205,7 +206,7 @@
                               render))
                    "(:newline))")))
   (testing "doesn't show the path in the top level"
-    (is (.endsWith (first (-> [1 2 3]
+    (is (str/ends-with? (first (-> [1 2 3]
                               inspect
                               render))
                    "(:newline))"))))
@@ -236,11 +237,16 @@
       "[ ( 1 1 1 1 1 ... ) ]" [(repeat 1)]
       "{ :a { ( 0 1 2 3 4 ... ) 1, ... } }" {:a {(range 10) 1, 2 3, 4 5, 6 7, 8 9, 10 11}}
       "( 1 2 3 )" (lazy-seq '(1 2 3))
-      "( 1 1 1 1 1 ... )" (java.util.ArrayList. (repeat 100 1))
-      "( 1 2 3 )" (java.util.ArrayList. [1 2 3])
-      "{ :a 1, :b 2 }" (java.util.HashMap. {:a 1 :b 2})
-      "long[] { 1, 2, 3, 4 }" (long-array [1 2 3 4])
-      "java.lang.Long[] { 0, 1, 2, 3, 4 ... }" (into-array Long (range 10))
+      "( 1 1 1 1 1 ... )" (#?(:clj  java.util.ArrayList.
+                              :cljr System.Collections.ArrayList.) (repeat 100 1))
+      "( 1 2 3 )" (#?(:clj  java.util.ArrayList.
+                      :cljr System.Collections.ArrayList.) [1 2 3])
+      "{ :a 1, :b 2 }" (#?(:clj  java.util.HashMap.
+                           :cljr System.Collections.Hashtable.) {:a 1 :b 2})
+      #?(:clj  "long[] { 1, 2, 3, 4 }"
+         :cljr "Int64[] { 1, 2, 3, 4 }") (long-array [1 2 3 4])
+      #?(:clj  "java.lang.Long[] { 0, 1, 2, 3, 4 ... }"
+         :cljr "Int64[] { 0, 1, 2, 3, 4 ... }") (into-array #?(:clj Long :cljr Int64) (range 10))
       "#<MyTestType test1>" (MyTestType. "test1"))))
 
 (deftest inspect-coll-test
@@ -252,7 +258,8 @@
   (testing "inspecting java.util.Map descendendants prints a key-value coll"
     (is (= java-hashmap-inspect-result
            (render (inspect/start (inspect/fresh)
-                                  (java.util.HashMap. {:a 1, :b 2, :c 3})))))))
+                                  (#?(:clj  java.util.HashMap.
+                                      :cljr System.Collections.Hashtable.) {:a 1, :b 2, :c 3})))))))
 
 (deftest inspect-path
   (testing "inspector keeps track of the path in the inspected structure"

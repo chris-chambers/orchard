@@ -1,13 +1,22 @@
 (ns orchard.classpath
   "A simple wrapper around `clojure.java.classpath` that is Boot-aware."
+  #?(:clj
   (:require
    [clojure.java.classpath :as cp]
    [clojure.string :as str]
    [orchard.classloader :as cl]
-   [orchard.misc :as u])
+   [orchard.misc :as u]))
+  #?(:clj
   (:import
    java.io.File
-   java.util.jar.JarFile))
+   java.util.jar.JarFile)))
+
+#?(:cljr
+   (defn classpath
+     ([] [])
+     ([classloader] []))
+
+#?(:clj (do
 
 (defn- ensure-absolute-paths
   "Returns a `File` guaranteeing an absolute path for `file`."
@@ -51,3 +60,5 @@
    (classpath-jarfiles (classpath)))
   ([path]
    (map #(JarFile. ^File %) (filter cp/jar-file? path))))
+
+))

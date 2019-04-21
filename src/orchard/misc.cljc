@@ -6,21 +6,24 @@
   "Windows")
 
 (defn os-windows? []
-  (.startsWith (System/getProperty "os.name") windows-prefix))
+  #?(:clj (.startsWith (System/getProperty "os.name") windows-prefix)
+     :cljr (= (.Platform Environment/OSVersion) PlatformID/Win32NT)))
 
-(defn boot-fake-classpath
-  "Retrieve Boot's fake classpath.
+#?(:clj
+   (defn boot-fake-classpath
+     "Retrieve Boot's fake classpath.
   When using Boot, fake.class.path contains the original directories with source
   files, which makes it way more useful than the real classpath.
   See https://github.com/boot-clj/boot/issues/249 for details."
-  []
-  (System/getProperty "fake.class.path"))
+     []
+     (System/getProperty "fake.class.path")))
 
 (defn boot-project?
   "Check whether we're dealing with a Boot project.
   We figure this by checking for the presence of Boot's fake classpath."
   []
-  (not (nil? (boot-fake-classpath))))
+  #?(:clj  (not (nil? (boot-fake-classpath)))
+     :cljr false))
 
 (defn as-sym
   [x]
@@ -54,27 +57,33 @@
     (apply f (filter identity xs))))
 
 (def java-api-version
-  (try
-    (let [java-ver (System/getProperty "java.version")
-          [major minor _] (str/split java-ver #"\.")
-          major (Integer/parseInt major)
-          minor (Integer/parseInt minor)]
-      (if (> major 1)
-        major
-        (or minor 7)))
-    (catch Exception _ 7)))
+  #?(:clj
+     (try
+       (let [java-ver (System/getProperty "java.version")
+             [major minor _] (str/split java-ver #"\.")
+             major (Integer/parseInt major)
+             minor (Integer/parseInt minor)]
+         (if (> major 1)
+           major
+           (or minor 7)))
+       (catch Exception _ 7))
+     ;; FIXME: What should we do here?  CLR doesn't have a Java API at all!
+     :cljr 7))
 
 (defmulti transform-value "Transform a value for output" type)
 
 (defmethod transform-value :default [v] (str v))
 
-(defmethod transform-value Number [v] v)
+;; FIXME: Need to handle each number type in the CLR?
+#?(:clj (defmethod transform-value Number [v] v))
 
 (defmethod transform-value nil [v] nil)
 
-(defmethod transform-value java.io.File
-  [v]
-  (.getAbsolutePath ^java.io.File v))
+;; FIXME: Will it be FileInfo in the CLR?
+#?(:clj
+   (defmethod transform-value java.io.File
+     [v]
+     (.getAbsolutePath ^java.io.File v)))
 
 (defmethod transform-value clojure.lang.Sequential
   [v]
